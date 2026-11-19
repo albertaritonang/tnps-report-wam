@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <style>
 :root{
   --red:#D0021B; --red-deep:#9A0A1E; --red-ink:#6E0716; --red-wash:#FCEDEF;
@@ -251,7 +251,7 @@ table.m td.c{text-align:right;color:var(--muted);font-variant-numeric:tabular-nu
     </div>
   </details>
 
-  <p class="foot">tNPS = (Promotor − Detractor) / Grand total. MoM dan Gap dalam poin persen. Data diolah di browser ini dan tidak dikirim ke server.</p>
+  <p class="foot">tNPS = (Promotor − Detractor) / Grand total. MoM dan Gap dalam poin persen. Data diolah dan disimpan di browser ini saja, tidak dikirim ke server.</p>
 </main>
 <div class="toast" id="toast" role="status"></div>
 
@@ -326,6 +326,7 @@ onmessage = (e) => {
     }
     if (!found) throw new Error('Kolom "' + schema.id + '" dan "' + schema.date + '" tidak ditemukan di file ini. Pastikan file masuk ke kotak yang benar.');
     const { rows, hi, h, sn } = found;
+    const header = rows[hi].map((x) => (x == null ? '' : String(x).trim()));
     const iId = h.indexOf(schema.id), iDate = h.indexOf(schema.date);
     const iUnit = schema.unit ? h.indexOf(schema.unit) : -1;
     const iCat = schema.cat ? h.indexOf(schema.cat) : -1;
@@ -344,7 +345,7 @@ onmessage = (e) => {
     }
     MDY = secondBig > firstBig;
     postMessage({ type: 'progress', text: 'Menghitung ' + (rows.length - hi - 1).toLocaleString('id-ID') + ' baris…' });
-    const agg = {}, cats = {}, perMonth = {}, badDates = [];
+    const agg = {}, cats = {}, perMonth = {}, badDates = [], raw = {};
     let total = 0, used = 0, noId = 0, noDate = 0, unclassified = 0, min = null, max = null;
     for (let r = hi + 1; r < rows.length; r++) {
       const row = rows[r]; if (!row) continue;
@@ -362,11 +363,12 @@ onmessage = (e) => {
       const day = agg[date] || (agg[date] = {});
       const a = day[unit] || (day[unit] = { p: 0, n: 0, d: 0 });
       a[c]++; used++;
+      (raw[date + '|' + unit] || (raw[date + '|' + unit] = [])).push([c].concat(row.length > header.length ? row.slice(0, header.length) : row));
       perMonth[date.slice(0, 7)] = (perMonth[date.slice(0, 7)] || 0) + 1;
       if (!min || date < min) min = date;
       if (!max || date > max) max = date;
     }
-    postMessage({ type: 'done', result: { name, sheet: sn, dateOrder: MDY ? 'bulan/hari/tahun' : 'hari/bulan/tahun', agg, cats, perMonth, badDates, total, used, noId, noDate, unclassified, min, max } });
+    postMessage({ type: 'done', result: { name, sheet: sn, dateOrder: MDY ? 'bulan/hari/tahun' : 'hari/bulan/tahun', agg, raw, header, cats, perMonth, badDates, total, used, noId, noDate, unclassified, min, max } });
   } catch (err) {
     postMessage({ type: 'error', message: err.message || String(err) });
   }
@@ -640,6 +642,7 @@ function renderSources() {
     const k = b.dataset.clear;
     if (!confirm('Hapus semua data ' + DATASETS[k].label + ' yang tersimpan?')) return;
     state.data[k] = { agg: {}, files: [], cats: {} }; save(); renderAll();
+    RAW.clear(k).catch(() => {});
   }));
 }
 
@@ -688,6 +691,49 @@ function setView(v, persist = true) {
 }
 function renderAll() { renderSources(); renderControls(); renderReport(); renderMapping(); }
 
+/* ---------- Penyimpanan raw data (IndexedDB) ---------- */
+const RAW = {
+  db: null,
+  open() {
+    if (this.db) return Promise.resolve(this.db);
+    return new Promise((res, rej) => {
+      const rq = indexedDB.open('tnps-raw', 1);
+      rq.onupgradeneeded = () => { const s = rq.result.createObjectStore('groups', { keyPath: 'k' }); s.createIndex('ds', 'ds'); };
+      rq.onsuccess = () => { this.db = rq.result; res(this.db); };
+      rq.onerror = () => rej(rq.error);
+    });
+  },
+  async put(ds, groups) {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('groups', 'readwrite'), st = tx.objectStore('groups');
+      for (const key in groups) { const [date, unit] = key.split('|'); st.put({ k: ds + '|' + key, ds, date, unit, header: groups[key].header, rows: groups[key].rows }); }
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+  },
+  async all(ds) {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const rq = db.transaction('groups').objectStore('groups').index('ds').getAll(ds);
+      rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+    });
+  },
+  async clear(ds) {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('groups', 'readwrite'), st = tx.objectStore('groups');
+      const rq = st.index('ds').getAllKeys(ds);
+      rq.onsuccess = () => rq.result.forEach((k) => st.delete(k));
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+  }
+};
+// samakan susunan kolom bila header antar file berbeda
+function remap(rows, from, to) {
+  const idx = to.map((h) => from.indexOf(h));
+  return rows.map((r) => [r[0]].concat(idx.map((i) => (i < 0 ? null : r[i + 1]))));
+}
+
 /* ---------- Upload ---------- */
 let worker = null;
 function getWorker() {
@@ -711,7 +757,7 @@ async function handleFiles(ds, files) {
   if (busy) { toast('Tunggu proses sebelumnya selesai.'); return; }
   busy = true;
   const status = (html) => { const el = $('#status-' + ds); if (el) el.innerHTML = html; };
-  const combined = {}, results = [];
+  const combined = {}, combinedRaw = {}, results = [];
   try {
     for (const f of files) {
       const res = await parseFile(f, DATASETS[ds].schema, status);
@@ -720,7 +766,16 @@ async function handleFiles(ds, files) {
         const c = (combined[date] ||= {})[u] ||= { p: 0, n: 0, d: 0 }, x = res.agg[date][u];
         c.p += x.p; c.n += x.n; c.d += x.d;
       }
+      for (const key in res.raw) {
+        const g = combinedRaw[key];
+        if (!g) combinedRaw[key] = { header: res.header, rows: res.raw[key] };
+        else if (g.header.join('') === res.header.join('')) g.rows = g.rows.concat(res.raw[key]);
+        else g.rows = g.rows.concat(remap(res.raw[key], res.header, g.header));
+      }
+      res.raw = null;
     }
+    try { status('Menyimpan raw data…'); await RAW.put(ds, combinedRaw); }
+    catch (e) { toast('Raw data tidak bisa disimpan di browser ini; sheet raw di Excel akan kosong.'); }
     const store = state.data[ds];
     for (const date in combined) for (const u in combined[date]) (store.agg[date] ||= {})[u] = combined[date][u];
     for (const r of results) {
@@ -749,12 +804,138 @@ function exportRows() {
   });
   return out;
 }
-$('#xlsxBtn').addEventListener('click', () => {
-  const aoa = exportRows(), ws = XLSX.utils.aoa_to_sheet(aoa);
-  aoa.forEach((row, r) => row.forEach((v, c) => { if (typeof v === 'number') ws[XLSX.utils.encode_cell({ r, c })].z = c === 3 || c === 5 ? '0.0%' : '0%'; }));
-  ws['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
-  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Rekap tNPS');
-  XLSX.writeFile(wb, `Rekap_tNPS_${periods().cur[1] || 'kosong'}.xlsx`);
+/* Excel: sheet rekap bergaya laporan + rincian + raw data per sumber */
+const XL = (() => {
+  const thin = (rgb) => ({ style: 'thin', color: { rgb } });
+  const box = (rgb) => ({ top: thin(rgb), bottom: thin(rgb), left: thin(rgb), right: thin(rgb) });
+  const font = (o = {}) => Object.assign({ name: 'Calibri', sz: 11, color: { rgb: '000000' } }, o);
+  return {
+    head: { fill: { patternType: 'solid', fgColor: { rgb: 'C00000' } }, font: font({ bold: true, color: { rgb: 'FFFFFF' } }),
+            alignment: { horizontal: 'center', vertical: 'center' }, border: box('FFFFFF') },
+    cell: (o = {}) => ({ font: font(o.font), alignment: { horizontal: o.align || 'center', vertical: 'center' }, border: box('000000') }),
+    title: { font: font({ bold: true, sz: 16, color: { rgb: 'C00000' } }) },
+    sub: { font: font({ color: { rgb: '6F6B78' } }) },
+    rawHead: { fill: { patternType: 'solid', fgColor: { rgb: 'C00000' } }, font: font({ bold: true, color: { rgb: 'FFFFFF' } }), alignment: { vertical: 'center' } },
+    helperHead: { fill: { patternType: 'solid', fgColor: { rgb: '22202A' } }, font: font({ bold: true, color: { rgb: 'FFFFFF' } }), alignment: { vertical: 'center' } }
+  };
+})();
+function put(ws, r, c, v, s, z) {
+  const cell = v === '' || v == null ? { t: 's', v: '' } : typeof v === 'number' ? { t: 'n', v } : { t: 's', v: String(v) };
+  if (s) cell.s = s; if (z) cell.z = z;
+  ws[XLSX.utils.encode_cell({ r, c })] = cell;
+}
+function setRange(ws, r, c) { ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r, c } }); }
+
+function sheetRekap(m) {
+  const ws = {}, lp = plainLabel(m.per.prev), lc = plainLabel(m.per.cur), merges = [];
+  put(ws, 0, 1, 'Rekap tNPS per Channel', XL.title);
+  put(ws, 1, 1, `Periode ${lc} dibanding ${lp} · MoM ${state.momMode === 'rel' ? 'pertumbuhan %' : 'selisih poin'} · diunduh ${new Date().toLocaleString('id-ID')}`, XL.sub);
+  let r = 3;
+  m.sections.forEach((s) => {
+    [s.title, lp, lc, 'MoM', 'Target', 'Gap'].forEach((h, i) => put(ws, r, 1 + i, h, XL.head));
+    r++;
+    s.rows.forEach((row) => {
+      const bold = row.isTotal;
+      put(ws, r, 1, row.label, XL.cell({ font: { bold } }));
+      put(ws, r, 2, row.prev == null ? '–' : row.prev / 100, XL.cell(), '0%');
+      put(ws, r, 3, row.cur == null ? '–' : row.cur / 100, XL.cell(), '0%');
+      put(ws, r, 4, row.mom == null ? '–' : row.mom / 100, XL.cell({ font: { bold: true, color: { rgb: row.mom < 0 ? 'E00000' : '000000' } } }), '0.0%');
+      put(ws, r, 5, isNaN(row.target) ? '–' : row.target / 100, XL.cell(), '0%');
+      put(ws, r, 6, row.gap == null ? '–' : row.gap / 100, XL.cell({ font: { color: { rgb: row.gap < 0 ? 'E00000' : '000000' } } }), '0.0%');
+      r++;
+    });
+    r++;
+  });
+  put(ws, r, 1, 'tNPS = (Promotor − Detractor) / Grand total. Rincian jumlah responden ada di sheet "Rincian".', XL.sub);
+  setRange(ws, r, 6);
+  ws['!cols'] = [{ wch: 2 }, { wch: 32 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
+  ws['!rows'] = [{ hpt: 24 }];
+  return ws;
+}
+function sheetRincian(m) {
+  const ws = {}; let r = 1;
+  put(ws, 0, 1, 'Rincian perhitungan', XL.title);
+  [['tc', plainLabel(m.per.cur)], ['tp', plainLabel(m.per.prev)]].forEach(([key, label]) => {
+    r++;
+    m.sections.forEach((s) => {
+      [`${s.title} · ${label}`, 'Detractor', 'Passive', 'Promotor', 'Grand Total', 'tNPS'].forEach((h, i) => put(ws, r, 1 + i, h, XL.head));
+      r++;
+      s.rows.forEach((row) => {
+        const c = row[key], tot = c.p + c.n + c.d, bold = row.isTotal;
+        put(ws, r, 1, row.label, XL.cell({ font: { bold }, align: 'left' }));
+        [c.d, c.n, c.p, tot].forEach((v, i) => put(ws, r, 2 + i, v, XL.cell({ font: { bold } }), '#,##0'));
+        put(ws, r, 6, tot ? (c.p - c.d) / tot : '–', XL.cell({ font: { bold } }), '0.0%');
+        r++;
+      });
+      r++;
+    });
+  });
+  setRange(ws, r, 6);
+  ws['!cols'] = [{ wch: 2 }, { wch: 40 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 13 }, { wch: 10 }];
+  return ws;
+}
+const CAT = { p: 'Promotor', n: 'Passive', d: 'Detractor' };
+function excelDate(iso) { const [y, mo, d] = iso.split('-').map(Number); return Date.UTC(y, mo - 1, d) / 86400000 + 25569; }
+async function sheetRaw(ds, per) {
+  let groups = [];
+  try { groups = await RAW.all(ds); } catch (e) {}
+  const inCur = (d) => per.cur[0] && d >= per.cur[0] && d <= per.cur[1];
+  const inPrev = (d) => per.prev[0] && d >= per.prev[0] && d <= per.prev[1];
+  const noPeriod = !per.cur[0];
+  groups = groups.filter((g) => noPeriod || inCur(g.date) || inPrev(g.date)).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.unit < b.unit ? -1 : 1));
+  if (!groups.length) {
+    const ws = {};
+    put(ws, 0, 0, 'Belum ada raw data untuk periode ini. Hapus lalu unggah ulang file di web agar sheet ini terisi.', XL.sub);
+    setRange(ws, 0, 0); ws['!cols'] = [{ wch: 100 }];
+    return ws;
+  }
+  const union = [];
+  groups.forEach((g) => g.header.forEach((h) => { if (!union.includes(h)) union.push(h); }));
+  const helper = ['Tanggal', 'Periode', 'Channel rekap', 'Kategori tNPS'];
+  const aoa = [helper.concat(union)];
+  const lp = plainLabel(per.prev), lc = plainLabel(per.cur);
+  for (const g of groups) {
+    const idx = union.map((h) => g.header.indexOf(h));
+    const ch = channelOf(ds, g.unit) || 'Tidak dihitung';
+    const periode = noPeriod ? '' : inCur(g.date) ? lc : lp;
+    const tgl = excelDate(g.date);
+    for (const row of g.rows) {
+      const out = [tgl, periode, ch, CAT[row[0]]];
+      for (const i of idx) {
+        let v = i < 0 ? null : row[i + 1];
+        if (typeof v === 'number' && Number.isInteger(v) && Math.abs(v) >= 1e11) v = String(v); // msisdn/id tidak jadi 6,28E+12
+        if (typeof v === 'string' && v.length > 32000) v = v.slice(0, 32000);
+        out.push(v);
+      }
+      aoa.push(out);
+    }
+  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  for (let r = 1; r < aoa.length; r++) { const c = ws[XLSX.utils.encode_cell({ r, c: 0 })]; if (c) c.z = 'dd/mm/yyyy'; }
+  aoa[0].forEach((_, c) => { const cell = ws[XLSX.utils.encode_cell({ r: 0, c })]; if (cell) cell.s = c < helper.length ? XL.helperHead : XL.rawHead; });
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: aoa.length - 1, c: aoa[0].length - 1 } }) };
+  ws['!cols'] = aoa[0].map((h, i) => ({ wch: i === 0 ? 11 : i < helper.length ? 16 : Math.min(28, Math.max(10, String(h).length + 2)) }));
+  return ws;
+}
+$('#xlsxBtn').addEventListener('click', async () => {
+  const btn = $('#xlsxBtn'), label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Menyiapkan…';
+  try {
+    const m = buildModel(), wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, sheetRekap(m), 'Rekap tNPS');
+    XLSX.utils.book_append_sheet(wb, sheetRincian(m), 'Rincian');
+    for (const [ds, name] of [['mobile', 'Raw Mobile'], ['indihome', 'Raw IndiHome'], ['vero', 'Raw Veronica'], ['ge', 'Raw GraPARI Express']]) {
+      btn.textContent = 'Menyusun ' + name + '…';
+      await new Promise((r) => setTimeout(r, 30));
+      XLSX.utils.book_append_sheet(wb, await sheetRaw(ds, m.per), name);
+    }
+    btn.textContent = 'Menulis file…';
+    await new Promise((r) => setTimeout(r, 30));
+    XLSX.writeFile(wb, `Rekap_tNPS_${plainLabel(m.per.cur).replace(/\s/g, '_')}.xlsx`, { compression: true });
+    toast('Excel diunduh.');
+  } catch (e) {
+    toast('Gagal membuat Excel: ' + e.message);
+  } finally { btn.disabled = false; btn.textContent = label; }
 });
 $('#copyBtn').addEventListener('click', async () => {
   const m = buildModel(), lp = plainLabel(m.per.prev), lc = plainLabel(m.per.cur);
