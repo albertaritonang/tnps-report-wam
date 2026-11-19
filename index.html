@@ -146,6 +146,9 @@ table.t td{border:1px solid #000;padding:4px 10px;text-align:center;font-variant
 table.t td:first-child{width:24%}
 table.t tr.total td:first-child,table.t td.mom{font-weight:700}
 table.t td.neg{color:#E00000}
+.pivot{margin-top:22px;color:#000}
+.pivot summary{cursor:pointer;font-weight:700;margin-bottom:14px}
+table.pv th:first-child{text-align:left}
 
 /* ---------- Pengaturan ---------- */
 .settings{background:var(--surface);border-radius:16px;box-shadow:0 1px 0 var(--line)}
@@ -212,6 +215,7 @@ table.m td.c{text-align:right;color:var(--muted);font-variant-numeric:tabular-nu
       <button role="tab" id="tab-sheet" aria-selected="false">Tabel laporan</button>
     </div>
     <div class="actions">
+      <label class="toggle">MoM <select id="momMode" aria-label="Cara hitung MoM"><option value="pp">selisih poin</option><option value="rel">pertumbuhan %</option></select></label>
       <label class="toggle"><input type="checkbox" id="showN"> Jumlah responden</label>
       <button class="btn ghost" id="copyBtn">Salin tabel</button>
       <button class="btn" id="xlsxBtn">Unduh Excel</button>
@@ -260,6 +264,7 @@ function ymd(y, m, d) {
   return y + '-' + pad(m) + '-' + pad(d);
 }
 const MON = {jan:1,feb:2,mar:3,apr:4,may:5,mei:5,jun:6,jul:7,aug:8,agu:8,agt:8,sep:9,oct:10,okt:10,nov:11,dec:12,des:12};
+let MDY = false; // true bila file memakai format bulan/hari/tahun
 function toISO(v) {
   if (v == null || v === '') return null;
   if (typeof v === 'number') {
@@ -270,7 +275,7 @@ function toISO(v) {
   const s = String(v).trim(); let m;
   if ((m = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/))) return ymd(+m[1], +m[2], +m[3]);
   if ((m = s.match(/^(\d{4})(\d{2})(\d{2})/))) return ymd(+m[1], +m[2], +m[3]);
-  if ((m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/))) return ymd(+m[3], +m[2], +m[1]);
+  if ((m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/))) return MDY ? ymd(+m[3], +m[1], +m[2]) : ymd(+m[3], +m[2], +m[1]);
   if ((m = s.match(/^(\d{1,2})[-\s]([A-Za-z]{3})[A-Za-z]*[-\s](\d{4})/)) && MON[m[2].toLowerCase()]) return ymd(+m[3], MON[m[2].toLowerCase()], +m[1]);
   if (/^\d+(\.\d+)?$/.test(s)) return toISO(parseFloat(s));
   return null;
@@ -312,6 +317,17 @@ onmessage = (e) => {
     const iScore = schema.score ? h.indexOf(schema.score) : -1;
     if (schema.unit && iUnit < 0) throw new Error('Kolom "' + schema.unit + '" tidak ditemukan.');
     if (iCat < 0 && iScore < 0) throw new Error('Kolom "' + schema.cat + '" (atau "' + schema.score + '") tidak ditemukan, jadi promotor/detractor tidak bisa ditentukan.');
+    // tentukan urutan tanggal: bagian pertama > 12 berarti hari duluan, bagian kedua > 12 berarti bulan duluan
+    let firstBig = 0, secondBig = 0;
+    for (let r = hi + 1; r < rows.length; r++) {
+      const v = rows[r] && rows[r][iDate];
+      if (typeof v !== 'string') continue;
+      const mm = v.trim().match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.]\d{4}/);
+      if (!mm) continue;
+      if (+mm[1] > 12) firstBig++;
+      if (+mm[2] > 12) secondBig++;
+    }
+    MDY = secondBig > firstBig;
     postMessage({ type: 'progress', text: 'Menghitung ' + (rows.length - hi - 1).toLocaleString('id-ID') + ' baris…' });
     const agg = {}, cats = {};
     let total = 0, used = 0, noId = 0, noDate = 0, unclassified = 0, min = null, max = null;
@@ -334,7 +350,7 @@ onmessage = (e) => {
       if (!min || date < min) min = date;
       if (!max || date > max) max = date;
     }
-    postMessage({ type: 'done', result: { name, sheet: sn, agg, cats, total, used, noId, noDate, unclassified, min, max } });
+    postMessage({ type: 'done', result: { name, sheet: sn, dateOrder: MDY ? 'bulan/hari/tahun' : 'hari/bulan/tahun', agg, cats, total, used, noId, noDate, unclassified, min, max } });
   } catch (err) {
     postMessage({ type: 'error', message: err.message || String(err) });
   }
@@ -394,7 +410,7 @@ function freshState() {
     mapping: Object.fromEntries(Object.keys(DATASETS).map((k) => [k, {}])),
     targets: { mobile: 60, nonassisted: 58, fixed: 43 },
     period: { mode: 'auto', cur: ['', ''], prev: ['', ''] },
-    showN: false, view: 'score'
+    showN: false, view: 'score', momMode: 'pp'
   };
 }
 let state = freshState();
@@ -470,7 +486,7 @@ function buildModel() {
         const tp = tally(sources, per.prev), tc = tally(sources, per.cur);
         const vp = tnps(tp), vc = tnps(tc);
         return { label, isTotal, prev: vp, cur: vc, nPrev: tp.p + tp.n + tp.d, nCur: tc.p + tc.n + tc.d,
-          mom: vp != null && vc != null ? vc - vp : null, target, gap: vc != null ? vc - target : null };
+          tp, tc, mom: vp != null && vc != null ? (state.momMode === 'rel' ? (vp ? (vc - vp) / Math.abs(vp) * 100 : null) : vc - vp) : null, target, gap: vc != null ? vc - target : null };
       };
       const rows = sec.rows.map(([label, ds, ch]) => mk(label, [[ds, ch]], false));
       rows.push(mk(sec.total, sec.rows.map(([, ds, ch]) => [ds, ch]), true));
@@ -556,7 +572,18 @@ function renderSheet(model) {
         <td class="mom ${r.mom < 0 ? 'neg' : ''}">${r.mom == null ? '–' : fmtPct1(r.mom)}</td>
         <td>${isNaN(r.target) ? '–' : fmtPct0(r.target)}</td>
         <td class="${r.gap < 0 ? 'neg' : ''}">${r.gap == null ? '–' : fmtPct1(r.gap)}</td></tr>`).join('')}</tbody>
+    </table>`).join('') + renderDetail(model);
+}
+function renderDetail(model) {
+  const block = (label, key) => model.sections.map((s) => `
+    <table class="t pv">
+      <thead><tr><th>${s.title} · ${label}</th><th>Detractor</th><th>Passive</th><th>Promotor</th><th>Grand Total</th><th>tNPS</th></tr></thead>
+      <tbody>${s.rows.map((r) => { const c = r[key], tot = c.p + c.n + c.d; return `<tr class="${r.isTotal ? 'total' : ''}">
+        <td>${r.label}</td><td>${fmtInt(c.d)}</td><td>${fmtInt(c.n)}</td><td>${fmtInt(c.p)}</td><td>${fmtInt(tot)}</td>
+        <td>${tot ? fmtPct1((c.p - c.d) / tot * 100) : '–'}</td></tr>`; }).join('')}</tbody>
     </table>`).join('');
+  return `<details class="pivot"><summary>Rincian perhitungan (cocokkan dengan pivot Excel)</summary>
+    ${block(plainLabel(model.per.cur), 'tc')}${block(plainLabel(model.per.prev), 'tp')}</details>`;
 }
 function renderReport() { const m = buildModel(); renderPeriod(m.per); renderScore(m); renderSheet(m); }
 
@@ -575,7 +602,8 @@ function renderSources() {
       ${d.files.length ? `<details class="more"><summary>${d.files.length} file diunggah</summary>
         <ul>${d.files.slice(-5).reverse().map((f) => `<li><strong>${escapeHtml(f.name)}</strong><br>${fmtInt(f.used)} respons · ${rangeLabel([f.min, f.max])}
           ${f.unclassified ? `<br><span class="warn">${fmtInt(f.unclassified)} baris tanpa kategori tNPS, tidak dihitung</span>` : ''}
-          ${f.noDate ? `<br><span class="warn">${fmtInt(f.noDate)} baris tanggalnya tidak terbaca</span>` : ''}</li>`).join('')}</ul>
+          ${f.noDate ? `<br><span class="warn">${fmtInt(f.noDate)} baris tanggalnya tidak terbaca</span>` : ''}
+          ${f.cats ? `<br>Kategori: ${Object.entries(f.cats).map(([c, n]) => escapeHtml(c) + ' ' + fmtInt(n)).join(', ')}` : ''}</li>`).join('')}</ul>
         <p style="margin:8px 0 0">Kolom: <code>${[ds.schema.id, ds.schema.date, ds.schema.unit, ds.schema.cat].filter((c, i, a) => c && a.indexOf(c) === i).join(', ')}</code> · <button class="link-btn" data-clear="${k}">Hapus data</button></p>
       </details>` : ''}
     </div>`;
@@ -628,6 +656,7 @@ function renderControls() {
   const per = periods(), manual = state.period.mode === 'manual';
   [['#prevStart', per.prev[0]], ['#prevEnd', per.prev[1]], ['#curStart', per.cur[0]], ['#curEnd', per.cur[1]]].forEach(([s, v]) => { $(s).value = v || ''; $(s).disabled = !manual; });
   $('#showN').checked = !!state.showN;
+  $('#momMode').value = state.momMode || 'pp';
   setView(state.view || 'score', false);
 }
 function setView(v, persist = true) {
@@ -676,7 +705,7 @@ async function handleFiles(ds, files) {
     const store = state.data[ds];
     for (const date in combined) for (const u in combined[date]) (store.agg[date] ||= {})[u] = combined[date][u];
     for (const r of results) {
-      store.files.push({ name: r.name, used: r.used, min: r.min, max: r.max, unclassified: r.unclassified, noDate: r.noDate, at: Date.now() });
+      store.files.push({ name: r.name, used: r.used, min: r.min, max: r.max, unclassified: r.unclassified, noDate: r.noDate, dateOrder: r.dateOrder, cats: r.cats, at: Date.now() });
       for (const c in r.cats) store.cats[c] = (store.cats[c] || 0) + r.cats[c];
     }
     store.files = store.files.slice(-20);
@@ -738,6 +767,7 @@ document.querySelectorAll('input[name=pmode]').forEach((r) => r.addEventListener
 }));
 [['#prevStart', 'prev', 0], ['#prevEnd', 'prev', 1], ['#curStart', 'cur', 0], ['#curEnd', 'cur', 1]].forEach(([s, k, i]) =>
   $(s).addEventListener('change', () => { state.period[k][i] = $(s).value; save(); renderReport(); renderMapping(); }));
+$('#momMode').addEventListener('change', () => { state.momMode = $('#momMode').value; save(); renderReport(); });
 $('#showN').addEventListener('change', () => { state.showN = $('#showN').checked; save(); renderReport(); });
 
 renderAll();
