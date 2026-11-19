@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rekap tNPS per Channel</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --red:#D0021B; --red-deep:#9A0A1E; --red-ink:#6E0716; --red-wash:#FCEDEF;
+  --ink:#22202A; --muted:#6F6B78; --faint:#A7A3AF;
+  --line:#E3E1E8; --surface:#FFFFFF; --page:#F1F0F4; --track:#ECEAF0;
+  --up:#0F8A5F; --up-wash:#E3F4EC; --down:#D0021B; --down-wash:#FCEDEF;
+  --font:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --ink:#EEECF2; --muted:#A6A2B0; --faint:#6E6A78;
+    --line:#34313D; --surface:#1E1C24; --page:#15141A; --track:#2C2A33;
+    --red-wash:#3A1820; --up:#3CCB91; --up-wash:#173229; --down:#FF5A6E; --down-wash:#3A1820;
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--font);color:var(--ink);background:var(--page);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--red);outline-offset:2px;border-radius:4px}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- Header ---------- */
+.hero{background:var(--red);color:#fff;position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;right:-120px;top:-160px;width:520px;height:520px;border-radius:50%;
+  border:70px solid rgba(255,255,255,.07);pointer-events:none}
+.hero-inner{max-width:1200px;margin:0 auto;padding:28px 28px 92px;position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:20px 40px;justify-content:space-between;align-items:flex-end}
+.brand{font-weight:700;font-size:14px;opacity:.85;margin:0 0 10px}
+.hero h1{margin:0;font-size:clamp(30px,4.6vw,52px);line-height:1.02;font-weight:800;letter-spacing:-.025em}
+.period{display:flex;align-items:center;gap:14px;font-weight:700}
+.period .p{display:flex;flex-direction:column}
+.period small{font-size:12px;font-weight:500;opacity:.75}
+.period .v{font-size:22px;letter-spacing:-.01em;white-space:nowrap}
+.period .vs{font-size:13px;opacity:.6;font-weight:600;padding-top:16px}
+.period .cur{background:#fff;color:var(--red);border-radius:10px;padding:6px 14px}
+.period .cur small{opacity:.7;color:var(--red-ink)}
+
+main{max-width:1200px;margin:-64px auto 0;padding:0 28px 48px;position:relative;z-index:2;display:grid;gap:22px}
+main>*{min-width:0}
+
+/* ---------- Sources ---------- */
+.sources{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.src{background:var(--surface);border-radius:14px;padding:16px 18px;box-shadow:0 1px 0 var(--line),0 10px 30px -18px rgba(60,10,20,.35);
+  display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;position:relative;transition:box-shadow .15s}
+.src.over{box-shadow:0 0 0 2px var(--red)}
+.src h3{margin:0;font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--faint);flex:none}
+.src.has .dot{background:var(--up)}
+.src .meta{grid-column:1;font-size:13px;color:var(--muted);margin:0}
+.src .status{grid-column:1/-1;font-size:12.5px;margin:4px 0 0;color:var(--muted)}
+.src .status:empty{display:none}
+.status .ok{color:var(--up);font-weight:700}
+.status .err{color:var(--down);font-weight:700}
+.up-btn{grid-row:1/3;grid-column:2;border:0;background:var(--red-wash);color:var(--red);font-weight:700;font-size:13px;border-radius:9px;padding:9px 14px;cursor:pointer;white-space:nowrap}
+:root .up-btn:hover{background:var(--red);color:#fff}
+.src input[type=file]{display:none}
+.src .more{grid-column:1/-1;font-size:12.5px;color:var(--muted);margin-top:4px}
+.src .more summary{cursor:pointer;color:var(--muted);font-weight:600;list-style:none}
+.src .more summary::-webkit-details-marker{display:none}
+.src .more summary::before{content:"+ ";}
+.src .more[open] summary::before{content:"− ";}
+.src .more ul{margin:6px 0 0;padding:0;list-style:none;display:grid;gap:6px}
+.src .more li{border-left:2px solid var(--line);padding-left:8px}
+.src .warn{color:var(--down)}
+.link-btn{background:none;border:0;padding:0;color:var(--red);cursor:pointer;font-weight:700;font-size:12.5px}
+.link-btn:hover{text-decoration:underline}
+
+/* ---------- Toolbar ---------- */
+.toolbar{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center}
+.tabs{display:inline-flex;background:var(--surface);border-radius:11px;padding:4px;box-shadow:0 1px 0 var(--line)}
+.tabs button{border:0;background:none;padding:7px 16px;border-radius:8px;font-weight:700;font-size:14px;color:var(--muted);cursor:pointer}
+.tabs button[aria-selected=true]{background:var(--ink);color:var(--surface)}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{border:0;background:var(--red);color:#fff;border-radius:10px;padding:9px 16px;font-weight:700;font-size:14px;cursor:pointer}
+.btn:hover{background:var(--red-deep)}
+.btn.ghost{background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+.btn.ghost:hover{box-shadow:inset 0 0 0 1px var(--ink)}
+.toggle{font-size:13.5px;color:var(--muted);display:flex;gap:6px;align-items:center;cursor:pointer}
+
+/* ---------- Scorecard ---------- */
+.cards{display:grid;gap:18px}
+.card{background:var(--surface);border-radius:16px;box-shadow:0 1px 0 var(--line);overflow:hidden}
+.card-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;padding:18px 22px 6px}
+.card-head h2{margin:0;font-size:19px;font-weight:800;letter-spacing:-.01em}
+.tgt{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);font-weight:600}
+.tgt input{width:62px;border:1px solid var(--line);background:var(--page);border-radius:8px;padding:4px 8px;font-weight:700;color:var(--ink);text-align:right}
+.tgt-mark{width:2px;height:14px;background:var(--ink);border-radius:1px;display:inline-block}
+
+.grid{display:grid;grid-template-columns:minmax(150px,1.25fr) 72px 92px minmax(200px,2.4fr) 84px 84px;align-items:center;column-gap:14px}
+.colhead{padding:8px 22px;font-size:12px;color:var(--faint);font-weight:600}
+.colhead span:nth-child(n+2){text-align:right}
+.colhead span:nth-child(4){text-align:left}
+.row{padding:12px 22px;border-top:1px solid var(--line)}
+.row .lbl{font-weight:600}
+.row .prev{text-align:right;color:var(--muted);font-weight:600}
+.row .cur{text-align:right;font-size:24px;font-weight:800;letter-spacing:-.02em;line-height:1}
+.row .n{display:block;font-size:11px;color:var(--faint);font-weight:500;letter-spacing:0;margin-top:3px}
+.row.total{background:var(--red-wash);border-top:0}
+.row.total .lbl{font-weight:800}
+.na{color:var(--faint)!important}
+
+.pill{justify-self:end;font-size:13px;font-weight:800;border-radius:999px;padding:3px 10px;white-space:nowrap}
+.pill.up{background:var(--up-wash);color:var(--up)}
+.pill.down{background:var(--down-wash);color:var(--down)}
+.pill.flat{background:var(--track);color:var(--muted)}
+.row.total .pill.flat{background:var(--surface)}
+
+/* jalur posisi: target, bulan lalu, bulan ini */
+.lane{position:relative;height:30px}
+.lane .track{position:absolute;left:0;right:0;top:13px;height:4px;border-radius:2px;background:var(--track)}
+.lane .zero{position:absolute;top:9px;width:1px;height:12px;background:var(--faint);opacity:.6}
+.lane .target{position:absolute;top:3px;width:2px;height:24px;background:var(--ink);border-radius:1px}
+.lane .move{position:absolute;top:13px;height:4px;border-radius:2px}
+.lane .move.up{background:var(--up)}
+.lane .move.down{background:var(--down)}
+.lane .old{position:absolute;top:9px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:var(--surface);border:2px solid var(--faint)}
+.lane .now{position:absolute;top:7px;width:16px;height:16px;margin-left:-8px;border-radius:50%;border:3px solid var(--surface);box-shadow:0 0 0 1px rgba(0,0,0,.08)}
+.lane .now.hit{background:var(--up)}
+.lane .now.miss{background:var(--red)}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:12.5px;color:var(--muted);padding:2px 4px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.lg-old{width:10px;height:10px;border-radius:50%;border:2px solid var(--faint)}
+.lg-now{width:12px;height:12px;border-radius:50%;background:var(--up)}
+.lg-now.miss{background:var(--red)}
+
+/* ---------- Tabel gaya Excel ---------- */
+.sheet{background:#fff;border-radius:16px;padding:22px;overflow-x:auto;color:#000}
+table.t{border-collapse:collapse;width:100%;min-width:760px;margin-bottom:22px;font-size:14px;font-family:var(--font)}
+table.t:last-child{margin-bottom:0}
+table.t th{background:#C00000;color:#fff;font-weight:700;padding:6px 10px;border:2px solid #fff;text-align:center;white-space:nowrap}
+table.t td{border:1px solid #000;padding:4px 10px;text-align:center;font-variant-numeric:tabular-nums}
+table.t td:first-child{width:24%}
+table.t tr.total td:first-child,table.t td.mom{font-weight:700}
+table.t td.neg{color:#E00000}
+
+/* ---------- Pengaturan ---------- */
+.settings{background:var(--surface);border-radius:16px;box-shadow:0 1px 0 var(--line)}
+.settings>summary{padding:16px 22px;cursor:pointer;font-weight:800;font-size:16px;list-style:none;display:flex;justify-content:space-between}
+.settings>summary::-webkit-details-marker{display:none}
+.settings>summary::after{content:"Buka";font-size:13px;color:var(--red);font-weight:700}
+.settings[open]>summary::after{content:"Tutup"}
+.set-body{padding:0 22px 22px;display:grid;gap:26px}
+.set-body h4{margin:0 0 8px;font-size:14px}
+.hint{font-size:13px;color:var(--muted);margin:6px 0 0;max-width:72ch}
+.field-row{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:8px;font-size:14px}
+.field-row .l{min-width:96px;color:var(--muted);font-size:13px}
+input[type=date],select{border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--page)}
+input[type=date]:disabled{opacity:.55}
+.map-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:22px}
+table.m{border-collapse:collapse;width:100%;font-size:13px}
+table.m td{border-bottom:1px solid var(--line);padding:5px 6px}
+table.m td.c{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+.badge{display:inline-block;background:var(--red-wash);color:var(--red);border-radius:5px;padding:0 6px;font-size:11px;font-weight:700;margin-left:6px}
+
+.empty{background:var(--surface);border-radius:16px;padding:48px 24px;text-align:center;color:var(--muted)}
+.empty strong{display:block;color:var(--ink);font-size:18px;margin-bottom:4px}
+.foot{font-size:12.5px;color:var(--muted);text-align:center;margin:0}
+.toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,8px);background:var(--ink);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:14px;font-weight:600;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+[hidden]{display:none!important}
+
+@media (max-width:900px){
+  .sources{grid-template-columns:1fr}
+  .grid{grid-template-columns:1fr auto auto;row-gap:8px}
+  .colhead{display:none}
+  .row .lbl{grid-column:1}
+  .row .prev{grid-column:2}
+  .row .cur{grid-column:3}
+  .row .lane{grid-column:1/-1}
+  .row .pill{grid-row:3}
+  .row .pill.mom{grid-column:1;justify-self:start}
+  .row .pill.gap{grid-column:2/-1}
+  .row .prev::before{content:attr(data-l) " ";font-size:11px;font-weight:500}
+  .row .pill.mom::before{content:"MoM ";font-weight:600;opacity:.8}
+  .row .pill.gap::before{content:"Gap ";font-weight:600;opacity:.8}
+}
+@media (max-width:560px){.hero-inner,main{padding-left:16px;padding-right:16px}.period .v{font-size:18px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="hero-inner">
+    <div>
+      <p class="brand">Customer Experience · tNPS</p>
+      <h1>Rekap tNPS<br>per Channel</h1>
+    </div>
+    <div class="period" id="period"></div>
+  </div>
+</header>
+
+<main>
+  <section class="sources" id="sources" aria-label="Raw data"></section>
+
+  <div class="toolbar">
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tab-score" aria-selected="true">Scorecard</button>
+      <button role="tab" id="tab-sheet" aria-selected="false">Tabel laporan</button>
+    </div>
+    <div class="actions">
+      <label class="toggle"><input type="checkbox" id="showN"> Jumlah responden</label>
+      <button class="btn ghost" id="copyBtn">Salin tabel</button>
+      <button class="btn" id="xlsxBtn">Unduh Excel</button>
+    </div>
+  </div>
+
+  <div id="view-score">
+    <div class="legend" id="legend"></div>
+    <div class="cards" id="cards"></div>
+  </div>
+  <div id="view-sheet" hidden><div class="sheet" id="sheet"></div></div>
+
+  <details class="settings" id="settings">
+    <summary>Pengaturan periode & pemetaan channel</summary>
+    <div class="set-body">
+      <div>
+        <h4>Periode</h4>
+        <div class="field-row">
+          <label><input type="radio" name="pmode" value="auto"> Otomatis (MTD vs bulan lalu)</label>
+          <label><input type="radio" name="pmode" value="manual"> Atur sendiri</label>
+        </div>
+        <div class="field-row"><span class="l">Pembanding</span>
+          <input type="date" id="prevStart" aria-label="Awal periode pembanding"> s.d. <input type="date" id="prevEnd" aria-label="Akhir periode pembanding"></div>
+        <div class="field-row"><span class="l">Periode ini</span>
+          <input type="date" id="curStart" aria-label="Awal periode ini"> s.d. <input type="date" id="curEnd" aria-label="Akhir periode ini"></div>
+        <p class="hint">Mode otomatis memakai tanggal terakhir di data: tanggal 1 s.d. tanggal itu di bulan berjalan, dibanding tanggal yang sama bulan sebelumnya.</p>
+      </div>
+      <div>
+        <h4>Pemetaan unit ke channel</h4>
+        <p class="hint">Tentukan nilai <code>unit_type</code> / <code>unit_type2</code> yang masuk ke tiap channel. Langsung berlaku tanpa unggah ulang.</p>
+        <div class="map-grid" id="mapGrid" style="margin-top:12px"></div>
+      </div>
+    </div>
+  </details>
+
+  <p class="foot">tNPS = (Promotor − Detractor) / Grand total. MoM dan Gap dalam poin persen. Data diolah di browser ini dan tidak dikirim ke server.</p>
+</main>
+<div class="toast" id="toast" role="status"></div>
+
+<script type="text/js-worker" id="workerSrc">
+importScripts('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+const norm = s => String(s == null ? '' : s).trim().toLowerCase();
+const pad = n => String(n).padStart(2, '0');
+function ymd(y, m, d) {
+  if (!(y >= 2000 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31)) return null;
+  return y + '-' + pad(m) + '-' + pad(d);
+}
+const MON = {jan:1,feb:2,mar:3,apr:4,may:5,mei:5,jun:6,jul:7,aug:8,agu:8,agt:8,sep:9,oct:10,okt:10,nov:11,dec:12,des:12};
+function toISO(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') {
+    if (v > 19000101 && v < 21001231) { const s = String(Math.floor(v)); return ymd(+s.slice(0,4), +s.slice(4,6), +s.slice(6,8)); }
+    if (v > 20000 && v < 80000) { const dt = new Date(Math.round((v - 25569) * 86400000)); return ymd(dt.getUTCFullYear(), dt.getUTCMonth()+1, dt.getUTCDate()); }
+    return null;
+  }
+  const s = String(v).trim(); let m;
+  if ((m = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/))) return ymd(+m[1], +m[2], +m[3]);
+  if ((m = s.match(/^(\d{4})(\d{2})(\d{2})/))) return ymd(+m[1], +m[2], +m[3]);
+  if ((m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/))) return ymd(+m[3], +m[2], +m[1]);
+  if ((m = s.match(/^(\d{1,2})[-\s]([A-Za-z]{3})[A-Za-z]*[-\s](\d{4})/)) && MON[m[2].toLowerCase()]) return ymd(+m[3], MON[m[2].toLowerCase()], +m[1]);
+  if (/^\d+(\.\d+)?$/.test(s)) return toISO(parseFloat(s));
+  return null;
+}
+// p = promotor, n = passive, d = detractor
+function classify(cat, score) {
+  if (cat != null && cat !== '') {
+    const s = norm(cat);
+    if (s.startsWith('promo')) return 'p';
+    if (s.startsWith('detr') || s.startsWith('detra')) return 'd';
+    if (s.startsWith('pas') || s.startsWith('neut')) return 'n';
+    const x = parseFloat(s);
+    if (!isNaN(x) && [1, 100, -1, -100, 0].includes(x) && /^-?\d+$/.test(s)) return x > 0 ? 'p' : x < 0 ? 'd' : 'n';
+  }
+  const x = parseFloat(score);
+  if (!isNaN(x) && x >= 0 && x <= 10) return x >= 9 ? 'p' : x <= 6 ? 'd' : 'n';
+  return null;
+}
+onmessage = (e) => {
+  const { buf, name, schema } = e.data;
+  try {
+    postMessage({ type: 'progress', text: 'Membaca ' + name + '…' });
+    const isCsv = /\.(csv|txt)$/i.test(name);
+    const wb = XLSX.read(buf, { type: 'array', raw: isCsv, cellDates: false, cellNF: false, cellText: false, cellStyles: false });
+    let found = null;
+    for (const sn of wb.SheetNames) {
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: false });
+      for (let i = 0; i < Math.min(25, rows.length); i++) {
+        const h = (rows[i] || []).map(norm);
+        if (h.indexOf(schema.id) >= 0 && h.indexOf(schema.date) >= 0) { found = { sn, rows, hi: i, h }; break; }
+      }
+      if (found) break;
+    }
+    if (!found) throw new Error('Kolom "' + schema.id + '" dan "' + schema.date + '" tidak ditemukan di file ini. Pastikan file masuk ke kotak yang benar.');
+    const { rows, hi, h, sn } = found;
+    const iId = h.indexOf(schema.id), iDate = h.indexOf(schema.date);
+    const iUnit = schema.unit ? h.indexOf(schema.unit) : -1;
+    const iCat = schema.cat ? h.indexOf(schema.cat) : -1;
+    const iScore = schema.score ? h.indexOf(schema.score) : -1;
+    if (schema.unit && iUnit < 0) throw new Error('Kolom "' + schema.unit + '" tidak ditemukan.');
+    if (iCat < 0 && iScore < 0) throw new Error('Kolom "' + schema.cat + '" (atau "' + schema.score + '") tidak ditemukan, jadi promotor/detractor tidak bisa ditentukan.');
+    postMessage({ type: 'progress', text: 'Menghitung ' + (rows.length - hi - 1).toLocaleString('id-ID') + ' baris…' });
+    const agg = {}, cats = {};
+    let total = 0, used = 0, noId = 0, noDate = 0, unclassified = 0, min = null, max = null;
+    for (let r = hi + 1; r < rows.length; r++) {
+      const row = rows[r]; if (!row) continue;
+      total++;
+      const id = row[iId];
+      if (id == null || String(id).trim() === '') { noId++; continue; }
+      const date = toISO(row[iDate]);
+      if (!date) { noDate++; continue; }
+      const catVal = iCat >= 0 ? row[iCat] : null;
+      const ck = catVal == null || String(catVal).trim() === '' ? '(kosong)' : String(catVal).trim();
+      if (cats[ck] != null || Object.keys(cats).length < 30) cats[ck] = (cats[ck] || 0) + 1;
+      const c = classify(catVal, iScore >= 0 ? row[iScore] : null);
+      if (!c) { unclassified++; continue; }
+      const unit = schema.unit ? (norm(row[iUnit]) || '(kosong)') : schema.fixedUnit;
+      const day = agg[date] || (agg[date] = {});
+      const a = day[unit] || (day[unit] = { p: 0, n: 0, d: 0 });
+      a[c]++; used++;
+      if (!min || date < min) min = date;
+      if (!max || date > max) max = date;
+    }
+    postMessage({ type: 'done', result: { name, sheet: sn, agg, cats, total, used, noId, noDate, unclassified, min, max } });
+  } catch (err) {
+    postMessage({ type: 'error', message: err.message || String(err) });
+  }
+};
+</script>
+
+<script>
+/* ---------- Konfigurasi ---------- */
+const DATASETS = {
+  mobile: {
+    label: 'Mobile & GraPARI Express',
+    desc: 'Call Center, GraPARI, eCare, MyGraPARI',
+    schema: { id: 'msisdn', date: 'survey_date', unit: 'unit_type', cat: 'tnps_type', score: 'q1_ans' },
+    channels: ['Call Center', 'GraPARI', 'eCare', 'GraPARI Express'],
+    defaults: { callcenter: 'Call Center', gerai: 'GraPARI', grapari: 'GraPARI', grapari_lite: 'GraPARI', webservice: 'eCare', online_care: 'eCare', mygrapari: 'GraPARI Express', 'grapari express': 'GraPARI Express', grapari_express: 'GraPARI Express' }
+  },
+  vero: {
+    label: 'Veronica',
+    desc: 'Semua channel Veronica jadi satu',
+    schema: { id: 'msisdn', date: 'survey_date', unit: null, fixedUnit: 'veronica', cat: 'tnps', score: 'score' },
+    channels: ['Veronica'],
+    defaults: { veronica: 'Veronica' }
+  },
+  indihome: {
+    label: 'IndiHome',
+    desc: 'Call Center, GraPARI, eCare (unit_type2)',
+    schema: { id: 'ts_call', date: 'ts_call', unit: 'unit_type2', cat: 'nps', score: 'q1_ans' },
+    channels: ['Call Center', 'GraPARI', 'eCare'],
+    defaults: { 'call center': 'Call Center', grapari: 'GraPARI', socmed: 'eCare', ecare: 'eCare' }
+  }
+};
+const SKIP = '__skip';
+const REPORT = [
+  { key: 'mobile', title: 'tNPS Mobile', total: 'tNPS Mobile All Assisted',
+    rows: [['Call Center', 'mobile', 'Call Center'], ['GraPARI', 'mobile', 'GraPARI'], ['eCare', 'mobile', 'eCare']] },
+  { key: 'nonassisted', title: 'tNPS non Assisted', total: 'tNPS Mobile All NonAssisted',
+    rows: [['Veronica', 'vero', 'Veronica'], ['GraPARI Express', 'mobile', 'GraPARI Express']] },
+  { key: 'fixed', title: 'tNPS Fixed', total: 'tNPS Fixed All Assisted',
+    rows: [['Call Center', 'indihome', 'Call Center'], ['GraPARI', 'indihome', 'GraPARI'], ['eCare', 'indihome', 'eCare']] }
+];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+const STORE_KEY = 'tnps-rekap-v1';
+
+/* ---------- State ---------- */
+function freshState() {
+  return {
+    data: { mobile: { agg: {}, files: [], cats: {} }, vero: { agg: {}, files: [], cats: {} }, indihome: { agg: {}, files: [], cats: {} } },
+    mapping: { mobile: {}, vero: {}, indihome: {} },
+    targets: { mobile: 60, nonassisted: 58, fixed: 43 },
+    period: { mode: 'auto', cur: ['', ''], prev: ['', ''] },
+    showN: false, view: 'score'
+  };
+}
+let state = freshState();
+try { const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); if (saved) state = Object.assign(freshState(), saved); } catch (e) {}
+function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { toast('Penyimpanan browser penuh; data hanya bertahan sampai halaman ditutup.'); } }
+
+/* ---------- Helpers ---------- */
+const $ = (s) => document.querySelector(s);
+const pad = (n) => String(n).padStart(2, '0');
+const fmtInt = (n) => n.toLocaleString('id-ID');
+const fmtPct0 = (v) => Math.round(v) + '%';
+const fmtPct1 = (v) => (Math.round(v * 10) / 10).toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+const signed = (v) => (v > 0.05 ? '+' : '') + fmtPct1(v);
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2600); }
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function daysInMonth(y, m) { return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
+function rangeLabel([a, b]) {
+  if (!a || !b) return '–';
+  const [ya, ma, da] = a.split('-').map(Number), [yb, mb, db] = b.split('-').map(Number);
+  if (ya === yb && ma === mb) return (da === db ? da : da + '–' + db) + ' ' + MONTHS[ma - 1];
+  return da + ' ' + MONTHS[ma - 1] + (ya !== yb ? ' ' + ya : '') + ' – ' + db + ' ' + MONTHS[mb - 1] + (ya !== yb ? ' ' + yb : '');
+}
+const plainLabel = (r) => rangeLabel(r).replace(/–/g, '-');
+function latestDate() { let max = ''; for (const k in state.data) for (const d in state.data[k].agg) if (d > max) max = d; return max; }
+function periods() {
+  if (state.period.mode === 'manual') return { cur: state.period.cur, prev: state.period.prev };
+  const last = latestDate();
+  if (!last) return { cur: ['', ''], prev: ['', ''] };
+  const [y, m, d] = last.split('-').map(Number);
+  const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1, pd = Math.min(d, daysInMonth(py, pm));
+  return { cur: [`${y}-${pad(m)}-01`, last], prev: [`${py}-${pad(pm)}-01`, `${py}-${pad(pm)}-${pad(pd)}`] };
+}
+function channelOf(ds, unit) {
+  const m = state.mapping[ds];
+  if (m && m[unit] != null) return m[unit] === SKIP ? null : m[unit];
+  return DATASETS[ds].defaults[unit] || null;
+}
+function tally(sources, [a, b]) {
+  const out = { p: 0, n: 0, d: 0 };
+  if (!a || !b) return out;
+  for (const [ds, ch] of sources) {
+    const agg = state.data[ds].agg;
+    for (const date in agg) {
+      if (date < a || date > b) continue;
+      for (const unit in agg[date]) {
+        if (channelOf(ds, unit) !== ch) continue;
+        const x = agg[date][unit]; out.p += x.p; out.n += x.n; out.d += x.d;
+      }
+    }
+  }
+  return out;
+}
+const tnps = (t) => { const tot = t.p + t.n + t.d; return tot ? (t.p - t.d) / tot * 100 : null; };
+
+function buildModel() {
+  const per = periods();
+  return {
+    per,
+    sections: REPORT.map((sec) => {
+      const target = Number(state.targets[sec.key]);
+      const mk = (label, sources, isTotal) => {
+        const tp = tally(sources, per.prev), tc = tally(sources, per.cur);
+        const vp = tnps(tp), vc = tnps(tc);
+        return { label, isTotal, prev: vp, cur: vc, nPrev: tp.p + tp.n + tp.d, nCur: tc.p + tc.n + tc.d,
+          mom: vp != null && vc != null ? vc - vp : null, target, gap: vc != null ? vc - target : null };
+      };
+      const rows = sec.rows.map(([label, ds, ch]) => mk(label, [[ds, ch]], false));
+      rows.push(mk(sec.total, sec.rows.map(([, ds, ch]) => [ds, ch]), true));
+      return { key: sec.key, title: sec.title, rows };
+    })
+  };
+}
+const hasData = () => Object.values(state.data).some((d) => Object.keys(d.agg).length);
+
+/* ---------- Render: header ---------- */
+function renderPeriod(per) {
+  $('#period').innerHTML = per.cur[0]
+    ? `<div class="p"><small>Pembanding</small><span class="v num">${rangeLabel(per.prev)}</span></div>
+       <span class="vs">vs</span>
+       <div class="p cur"><small>Periode ini</small><span class="v num">${rangeLabel(per.cur)}</span></div>`
+    : `<div class="p"><small>Periode</small><span class="v">Menunggu data</span></div>`;
+}
+
+/* ---------- Render: scorecard ---------- */
+function pill(v, cls, kind) {
+  if (v == null) return `<span class="pill flat ${kind} na">–</span>`;
+  const dir = v > 0.05 ? 'up' : v < -0.05 ? 'down' : 'flat';
+  return `<span class="pill ${dir} ${kind} num" title="${cls}">${signed(v)}</span>`;
+}
+function renderScore(model) {
+  const lp = rangeLabel(model.per.prev), lc = rangeLabel(model.per.cur);
+  $('#legend').innerHTML = hasData() ? `<span><i class="lg-old"></i>${lp}</span><span><i class="lg-now"></i>${lc}, capai target</span>
+    <span><i class="lg-now miss"></i>${lc}, di bawah target</span><span><i class="tgt-mark"></i>Target</span>` : '';
+  if (!hasData()) {
+    $('#cards').innerHTML = `<div class="empty"><strong>Belum ada data</strong>Unggah raw data Mobile, Veronica, atau IndiHome di atas untuk mengisi rekap.</div>`;
+    return;
+  }
+  // skala jalur: dari batas bawah (≤0) sampai 100
+  let lo = 0;
+  model.sections.forEach((s) => s.rows.forEach((r) => [r.prev, r.cur].forEach((v) => { if (v != null && v < lo) lo = v; })));
+  lo = Math.floor((lo - (lo < 0 ? 5 : 0)) / 10) * 10;
+  const x = (v) => ((Math.max(lo, Math.min(100, v)) - lo) / (100 - lo) * 100).toFixed(2) + '%';
+
+  $('#cards').innerHTML = model.sections.map((s) => `
+    <article class="card">
+      <div class="card-head">
+        <h2>${s.title}</h2>
+        <label class="tgt"><i class="tgt-mark"></i>Target <input type="number" step="0.1" class="num" data-tgt="${s.key}" value="${state.targets[s.key]}"> %</label>
+      </div>
+      <div class="grid colhead"><span>Channel</span><span>${lp}</span><span>${lc}</span><span>Posisi terhadap target</span><span>MoM</span><span>Gap</span></div>
+      ${s.rows.map((r) => {
+        const lane = r.cur == null && r.prev == null ? '<div class="lane"><div class="track"></div></div>' : `
+          <div class="lane" aria-hidden="true">
+            <div class="track"></div>
+            ${lo < 0 ? `<div class="zero" style="left:${x(0)}"></div>` : ''}
+            ${r.prev != null && r.cur != null ? `<div class="move ${r.cur >= r.prev ? 'up' : 'down'}" style="left:${x(Math.min(r.prev, r.cur))};width:calc(${x(Math.max(r.prev, r.cur))} - ${x(Math.min(r.prev, r.cur))})"></div>` : ''}
+            ${isNaN(r.target) ? '' : `<div class="target" style="left:${x(r.target)}"></div>`}
+            ${r.prev != null ? `<div class="old" style="left:${x(r.prev)}"></div>` : ''}
+            ${r.cur != null ? `<div class="now ${r.cur >= r.target ? 'hit' : 'miss'}" style="left:${x(r.cur)}"></div>` : ''}
+          </div>`;
+        return `<div class="grid row ${r.isTotal ? 'total' : ''}">
+          <span class="lbl">${r.label}</span>
+          <span class="prev num ${r.prev == null ? 'na' : ''}" data-l="${lp}:">${r.prev == null ? '–' : fmtPct0(r.prev)}${state.showN && r.prev != null ? `<span class="n">n=${fmtInt(r.nPrev)}</span>` : ''}</span>
+          <span class="cur num ${r.cur == null ? 'na' : ''}">${r.cur == null ? '–' : fmtPct0(r.cur)}${state.showN && r.cur != null ? `<span class="n">n=${fmtInt(r.nCur)}</span>` : ''}</span>
+          ${lane}
+          ${pill(r.mom, 'MoM', 'mom')}
+          ${pill(r.gap, 'Gap ke target', 'gap')}
+        </div>`;
+      }).join('')}
+    </article>`).join('');
+
+  document.querySelectorAll('[data-tgt]').forEach((inp) => inp.addEventListener('change', () => {
+    const v = parseFloat(inp.value);
+    if (!isNaN(v)) { state.targets[inp.dataset.tgt] = v; save(); renderReport(); }
+  }));
+}
+
+/* ---------- Render: tabel laporan (gaya Excel) ---------- */
+function renderSheet(model) {
+  const lp = plainLabel(model.per.prev), lc = plainLabel(model.per.cur);
+  if (!hasData()) { $('#sheet').innerHTML = '<p style="color:#666;text-align:center;margin:20px">Belum ada data.</p>'; return; }
+  const cell = (v, n) => v == null ? '<td>–</td>' : `<td>${fmtPct0(v)}${state.showN ? `<br><small style="color:#777">n=${fmtInt(n)}</small>` : ''}</td>`;
+  $('#sheet').innerHTML = model.sections.map((s) => `
+    <table class="t">
+      <thead><tr><th>${s.title}</th><th>${lp}</th><th>${lc}</th><th>MoM</th><th>Target</th><th>Gap</th></tr></thead>
+      <tbody>${s.rows.map((r) => `<tr class="${r.isTotal ? 'total' : ''}">
+        <td>${r.label}</td>${cell(r.prev, r.nPrev)}${cell(r.cur, r.nCur)}
+        <td class="mom ${r.mom < 0 ? 'neg' : ''}">${r.mom == null ? '–' : fmtPct1(r.mom)}</td>
+        <td>${isNaN(r.target) ? '–' : fmtPct0(r.target)}</td>
+        <td class="${r.gap < 0 ? 'neg' : ''}">${r.gap == null ? '–' : fmtPct1(r.gap)}</td></tr>`).join('')}</tbody>
+    </table>`).join('');
+}
+function renderReport() { const m = buildModel(); renderPeriod(m.per); renderScore(m); renderSheet(m); }
+
+/* ---------- Render: sumber data ---------- */
+function renderSources() {
+  $('#sources').innerHTML = Object.entries(DATASETS).map(([k, ds]) => {
+    const d = state.data[k], days = Object.keys(d.agg).sort();
+    const cover = days.length ? `${rangeLabel([days[0], days[days.length - 1]])} ${days[days.length - 1].slice(0, 4)}` : 'Belum ada data';
+    return `
+    <div class="src ${days.length ? 'has' : ''}" data-ds="${k}">
+      <h3><i class="dot"></i>${ds.label}</h3>
+      <p class="meta">${days.length ? cover : ds.desc}</p>
+      <button class="up-btn" type="button">${days.length ? 'Tambah data' : 'Unggah'}</button>
+      <input type="file" multiple accept=".xlsx,.xls,.xlsb,.csv,.txt" aria-label="Unggah raw data ${ds.label}">
+      <p class="status" id="status-${k}"></p>
+      ${d.files.length ? `<details class="more"><summary>${d.files.length} file diunggah</summary>
+        <ul>${d.files.slice(-5).reverse().map((f) => `<li><strong>${escapeHtml(f.name)}</strong><br>${fmtInt(f.used)} respons · ${rangeLabel([f.min, f.max])}
+          ${f.unclassified ? `<br><span class="warn">${fmtInt(f.unclassified)} baris tanpa kategori tNPS, tidak dihitung</span>` : ''}
+          ${f.noDate ? `<br><span class="warn">${fmtInt(f.noDate)} baris tanggalnya tidak terbaca</span>` : ''}</li>`).join('')}</ul>
+        <p style="margin:8px 0 0">Kolom: <code>${[ds.schema.id, ds.schema.date, ds.schema.unit, ds.schema.cat].filter((c, i, a) => c && a.indexOf(c) === i).join(', ')}</code> · <button class="link-btn" data-clear="${k}">Hapus data</button></p>
+      </details>` : ''}
+    </div>`;
+  }).join('');
+
+  document.querySelectorAll('.src').forEach((card) => {
+    const ds = card.dataset.ds, input = card.querySelector('input[type=file]');
+    card.querySelector('.up-btn').addEventListener('click', () => input.click());
+    input.addEventListener('change', () => { if (input.files.length) handleFiles(ds, [...input.files]); });
+    card.addEventListener('dragover', (e) => { e.preventDefault(); card.classList.add('over'); });
+    card.addEventListener('dragleave', () => card.classList.remove('over'));
+    card.addEventListener('drop', (e) => { e.preventDefault(); card.classList.remove('over'); if (e.dataTransfer.files.length) handleFiles(ds, [...e.dataTransfer.files]); });
+  });
+  document.querySelectorAll('[data-clear]').forEach((b) => b.addEventListener('click', () => {
+    const k = b.dataset.clear;
+    if (!confirm('Hapus semua data ' + DATASETS[k].label + ' yang tersimpan?')) return;
+    state.data[k] = { agg: {}, files: [], cats: {} }; save(); renderAll();
+  }));
+}
+
+/* ---------- Render: pemetaan & kontrol ---------- */
+function renderMapping() {
+  const per = periods();
+  $('#mapGrid').innerHTML = Object.entries(DATASETS).filter(([k]) => k !== 'vero').map(([k, ds]) => {
+    const counts = {}, inCur = {};
+    for (const date in state.data[k].agg) for (const u in state.data[k].agg[date]) {
+      const x = state.data[k].agg[date][u], n = x.p + x.n + x.d;
+      counts[u] = (counts[u] || 0) + n;
+      if (per.cur[0] && date >= per.cur[0] && date <= per.cur[1]) inCur[u] = (inCur[u] || 0) + n;
+    }
+    const units = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+    if (!units.length) return `<div><strong>${ds.label}</strong><p class="hint">Belum ada data.</p></div>`;
+    return `<div><strong>${ds.label}</strong> <span class="hint">(${ds.schema.unit})</span>
+      <table class="m" style="margin-top:6px">${units.map((u) => {
+        const ch = channelOf(k, u), unknown = state.mapping[k][u] == null && !ds.defaults[u];
+        return `<tr><td>${escapeHtml(u)}${unknown && inCur[u] ? '<span class="badge">belum dipetakan</span>' : ''}</td>
+          <td class="c">${fmtInt(counts[u])}</td>
+          <td><select data-map="${k}" data-unit="${escapeHtml(u)}" aria-label="Channel untuk ${escapeHtml(u)}">
+            ${ds.channels.map((c) => `<option ${c === ch ? 'selected' : ''}>${c}</option>`).join('')}
+            <option value="${SKIP}" ${ch == null ? 'selected' : ''}>Tidak dihitung</option>
+          </select></td></tr>`;
+      }).join('')}</table></div>`;
+  }).join('');
+  document.querySelectorAll('[data-map]').forEach((sel) => sel.addEventListener('change', () => {
+    state.mapping[sel.dataset.map][sel.dataset.unit] = sel.value; save(); renderReport(); renderMapping();
+  }));
+}
+function renderControls() {
+  document.querySelectorAll('input[name=pmode]').forEach((r) => (r.checked = r.value === state.period.mode));
+  const per = periods(), manual = state.period.mode === 'manual';
+  [['#prevStart', per.prev[0]], ['#prevEnd', per.prev[1]], ['#curStart', per.cur[0]], ['#curEnd', per.cur[1]]].forEach(([s, v]) => { $(s).value = v || ''; $(s).disabled = !manual; });
+  $('#showN').checked = !!state.showN;
+  setView(state.view || 'score', false);
+}
+function setView(v, persist = true) {
+  state.view = v;
+  $('#tab-score').setAttribute('aria-selected', v === 'score');
+  $('#tab-sheet').setAttribute('aria-selected', v === 'sheet');
+  $('#view-score').hidden = v !== 'score';
+  $('#view-sheet').hidden = v !== 'sheet';
+  if (persist) save();
+}
+function renderAll() { renderSources(); renderControls(); renderReport(); renderMapping(); }
+
+/* ---------- Upload ---------- */
+let worker = null;
+function getWorker() {
+  if (!worker) worker = new Worker(URL.createObjectURL(new Blob([$('#workerSrc').textContent], { type: 'text/javascript' })));
+  return worker;
+}
+function parseFile(file, schema, onProgress) {
+  return new Promise(async (resolve, reject) => {
+    const buf = await file.arrayBuffer(), w = getWorker();
+    w.onmessage = (e) => {
+      if (e.data.type === 'progress') onProgress(e.data.text);
+      else if (e.data.type === 'done') resolve(e.data.result);
+      else reject(new Error(e.data.message));
+    };
+    w.onerror = (e) => reject(new Error(e.message || 'Gagal membaca file.'));
+    w.postMessage({ buf, name: file.name, schema }, [buf]);
+  });
+}
+let busy = false;
+async function handleFiles(ds, files) {
+  if (busy) { toast('Tunggu proses sebelumnya selesai.'); return; }
+  busy = true;
+  const status = (html) => { const el = $('#status-' + ds); if (el) el.innerHTML = html; };
+  const combined = {}, results = [];
+  try {
+    for (const f of files) {
+      const res = await parseFile(f, DATASETS[ds].schema, status);
+      results.push(res);
+      for (const date in res.agg) for (const u in res.agg[date]) {
+        const c = (combined[date] ||= {})[u] ||= { p: 0, n: 0, d: 0 }, x = res.agg[date][u];
+        c.p += x.p; c.n += x.n; c.d += x.d;
+      }
+    }
+    const store = state.data[ds];
+    for (const date in combined) for (const u in combined[date]) (store.agg[date] ||= {})[u] = combined[date][u];
+    for (const r of results) {
+      store.files.push({ name: r.name, used: r.used, min: r.min, max: r.max, unclassified: r.unclassified, noDate: r.noDate, at: Date.now() });
+      for (const c in r.cats) store.cats[c] = (store.cats[c] || 0) + r.cats[c];
+    }
+    store.files = store.files.slice(-20);
+    save(); renderAll();
+    const used = results.reduce((a, r) => a + r.used, 0);
+    status(used ? `<span class="ok">Selesai.</span> ${fmtInt(used)} respons dari ${results.length} file masuk.`
+                : '<span class="err">Tidak ada baris yang terhitung.</span> Cek kolom tanggal dan kategori tNPS.');
+  } catch (err) {
+    status('<span class="err">Gagal:</span> ' + escapeHtml(err.message));
+    if (worker) { worker.terminate(); worker = null; }
+  } finally { busy = false; }
+}
+
+/* ---------- Ekspor ---------- */
+function exportRows() {
+  const m = buildModel(), lp = plainLabel(m.per.prev), lc = plainLabel(m.per.cur), out = [];
+  m.sections.forEach((s, i) => {
+    if (i) out.push([]);
+    out.push([s.title, lp, lc, 'MoM', 'Target', 'Gap']);
+    s.rows.forEach((r) => out.push([r.label, r.prev == null ? '' : r.prev / 100, r.cur == null ? '' : r.cur / 100,
+      r.mom == null ? '' : r.mom / 100, r.target / 100, r.gap == null ? '' : r.gap / 100]));
+  });
+  return out;
+}
+$('#xlsxBtn').addEventListener('click', () => {
+  const aoa = exportRows(), ws = XLSX.utils.aoa_to_sheet(aoa);
+  aoa.forEach((row, r) => row.forEach((v, c) => { if (typeof v === 'number') ws[XLSX.utils.encode_cell({ r, c })].z = c === 3 || c === 5 ? '0.0%' : '0%'; }));
+  ws['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Rekap tNPS');
+  XLSX.writeFile(wb, `Rekap_tNPS_${periods().cur[1] || 'kosong'}.xlsx`);
+});
+$('#copyBtn').addEventListener('click', async () => {
+  const m = buildModel(), lp = plainLabel(m.per.prev), lc = plainLabel(m.per.cur);
+  const th = 'style="background:#C00000;color:#fff;font-weight:bold;padding:4px 10px;border:1px solid #fff;font-family:Arial;font-size:11pt"';
+  const td = (extra = '') => `style="border:1px solid #000;padding:3px 10px;text-align:center;font-family:Arial;font-size:11pt;${extra}"`;
+  const html = m.sections.map((s) => `<table style="border-collapse:collapse"><tr>${[s.title, lp, lc, 'MoM', 'Target', 'Gap'].map((h) => `<th ${th}>${h}</th>`).join('')}</tr>${s.rows.map((r) => `<tr>
+    <td ${td(r.isTotal ? 'font-weight:bold' : '')}>${r.label}</td>
+    <td ${td()}>${r.prev == null ? '–' : fmtPct0(r.prev)}</td><td ${td()}>${r.cur == null ? '–' : fmtPct0(r.cur)}</td>
+    <td ${td('font-weight:bold;' + (r.mom < 0 ? 'color:#E00000' : ''))}>${r.mom == null ? '–' : fmtPct1(r.mom)}</td>
+    <td ${td()}>${fmtPct0(r.target)}</td><td ${td(r.gap < 0 ? 'color:#E00000' : '')}>${r.gap == null ? '–' : fmtPct1(r.gap)}</td></tr>`).join('')}</table>`).join('<br>');
+  const text = exportRows().map((r) => r.join('\t')).join('\n');
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]);
+    toast('Tabel disalin. Tempel di Excel, email, atau slide.');
+  } catch (e) {
+    const div = document.createElement('div'); div.innerHTML = html; div.style.cssText = 'position:fixed;left:-9999px'; document.body.appendChild(div);
+    const range = document.createRange(); range.selectNodeContents(div); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    document.execCommand('copy'); sel.removeAllRanges(); div.remove(); toast('Tabel disalin.');
+  }
+});
+
+/* ---------- Kontrol ---------- */
+$('#tab-score').addEventListener('click', () => setView('score'));
+$('#tab-sheet').addEventListener('click', () => setView('sheet'));
+document.querySelectorAll('input[name=pmode]').forEach((r) => r.addEventListener('change', () => {
+  if (r.value === 'manual') { const p = periods(); state.period = { mode: 'manual', cur: [...p.cur], prev: [...p.prev] }; }
+  else state.period.mode = 'auto';
+  save(); renderControls(); renderReport(); renderMapping();
+}));
+[['#prevStart', 'prev', 0], ['#prevEnd', 'prev', 1], ['#curStart', 'cur', 0], ['#curEnd', 'cur', 1]].forEach(([s, k, i]) =>
+  $(s).addEventListener('change', () => { state.period[k][i] = $(s).value; save(); renderReport(); renderMapping(); }));
+$('#showN').addEventListener('change', () => { state.showN = $('#showN').checked; save(); renderReport(); });
+
+renderAll();
+</script>
+</body>
+</html>
