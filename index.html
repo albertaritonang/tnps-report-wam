@@ -272,12 +272,27 @@ function toISO(v) {
     if (v > 20000 && v < 80000) { const dt = new Date(Math.round((v - 25569) * 86400000)); return ymd(dt.getUTCFullYear(), dt.getUTCMonth()+1, dt.getUTCDate()); }
     return null;
   }
+  if (v instanceof Date) return ymd(v.getFullYear(), v.getMonth() + 1, v.getDate());
   const s = String(v).trim(); let m;
+  const yy = (y) => (y.length === 2 ? 2000 + +y : +y);
+  // 2026-10-05 / 2026/10/05 / 2026-10-05T08:00
   if ((m = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/))) return ymd(+m[1], +m[2], +m[3]);
-  if ((m = s.match(/^(\d{4})(\d{2})(\d{2})/))) return ymd(+m[1], +m[2], +m[3]);
-  if ((m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/))) return MDY ? ymd(+m[3], +m[1], +m[2]) : ymd(+m[3], +m[2], +m[1]);
-  if ((m = s.match(/^(\d{1,2})[-\s]([A-Za-z]{3})[A-Za-z]*[-\s](\d{4})/)) && MON[m[2].toLowerCase()]) return ymd(+m[3], MON[m[2].toLowerCase()], +m[1]);
-  if (/^\d+(\.\d+)?$/.test(s)) return toISO(parseFloat(s));
+  // 20261005 / 20261005 08:00:00
+  if ((m = s.match(/^(\d{4})(\d{2})(\d{2})(?!\d)/))) return ymd(+m[1], +m[2], +m[3]);
+  // 05/10/2026, 10/5/2026, 05-10-26
+  if ((m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4}|\d{2})(?!\d)/)))
+    return MDY ? ymd(yy(m[3]), +m[1], +m[2]) : ymd(yy(m[3]), +m[2], +m[1]);
+  // 5 Okt 2026, 05-Oct-26, 5 October 2026
+  if ((m = s.match(/^(\d{1,2})[-\s.]+([A-Za-z]{3})[A-Za-z]*\.?[-\s,]+(\d{4}|\d{2})(?!\d)/)) && MON[m[2].toLowerCase()])
+    return ymd(yy(m[3]), MON[m[2].toLowerCase()], +m[1]);
+  // Oct 5, 2026 / October 05 2026
+  if ((m = s.match(/^([A-Za-z]{3})[A-Za-z]*\.?\s+(\d{1,2}),?\s+(\d{4})/)) && MON[m[1].toLowerCase()])
+    return ymd(+m[3], MON[m[1].toLowerCase()], +m[2]);
+  // Mon Oct 05 2026 ... (format JavaScript/ekspor sistem)
+  if ((m = s.match(/^[A-Za-z]{3},?\s+([A-Za-z]{3})[A-Za-z]*\s+(\d{1,2}),?\s+(\d{4})/)) && MON[m[1].toLowerCase()])
+    return ymd(+m[3], MON[m[1].toLowerCase()], +m[2]);
+  // angka seri Excel, termasuk yang pakai koma desimal (mis. 46300,01164 dari Excel berbahasa Indonesia)
+  if (/^\d+([.,]\d+)?$/.test(s)) return toISO(parseFloat(s.replace(',', '.')));
   return null;
 }
 // p = promotor, n = passive, d = detractor
@@ -322,14 +337,14 @@ onmessage = (e) => {
     for (let r = hi + 1; r < rows.length; r++) {
       const v = rows[r] && rows[r][iDate];
       if (typeof v !== 'string') continue;
-      const mm = v.trim().match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.]\d{4}/);
+      const mm = v.trim().match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4}|\d{2})(?!\d)/);
       if (!mm) continue;
       if (+mm[1] > 12) firstBig++;
       if (+mm[2] > 12) secondBig++;
     }
     MDY = secondBig > firstBig;
     postMessage({ type: 'progress', text: 'Menghitung ' + (rows.length - hi - 1).toLocaleString('id-ID') + ' baris…' });
-    const agg = {}, cats = {};
+    const agg = {}, cats = {}, perMonth = {}, badDates = [];
     let total = 0, used = 0, noId = 0, noDate = 0, unclassified = 0, min = null, max = null;
     for (let r = hi + 1; r < rows.length; r++) {
       const row = rows[r]; if (!row) continue;
@@ -337,7 +352,7 @@ onmessage = (e) => {
       const id = row[iId];
       if (id == null || String(id).trim() === '') { noId++; continue; }
       const date = toISO(row[iDate]);
-      if (!date) { noDate++; continue; }
+      if (!date) { noDate++; if (badDates.length < 5) badDates.push(String(row[iDate])); continue; }
       const catVal = iCat >= 0 ? row[iCat] : null;
       const ck = catVal == null || String(catVal).trim() === '' ? '(kosong)' : String(catVal).trim();
       if (cats[ck] != null || Object.keys(cats).length < 30) cats[ck] = (cats[ck] || 0) + 1;
@@ -347,10 +362,11 @@ onmessage = (e) => {
       const day = agg[date] || (agg[date] = {});
       const a = day[unit] || (day[unit] = { p: 0, n: 0, d: 0 });
       a[c]++; used++;
+      perMonth[date.slice(0, 7)] = (perMonth[date.slice(0, 7)] || 0) + 1;
       if (!min || date < min) min = date;
       if (!max || date > max) max = date;
     }
-    postMessage({ type: 'done', result: { name, sheet: sn, dateOrder: MDY ? 'bulan/hari/tahun' : 'hari/bulan/tahun', agg, cats, total, used, noId, noDate, unclassified, min, max } });
+    postMessage({ type: 'done', result: { name, sheet: sn, dateOrder: MDY ? 'bulan/hari/tahun' : 'hari/bulan/tahun', agg, cats, perMonth, badDates, total, used, noId, noDate, unclassified, min, max } });
   } catch (err) {
     postMessage({ type: 'error', message: err.message || String(err) });
   }
@@ -603,6 +619,9 @@ function renderSources() {
         <ul>${d.files.slice(-5).reverse().map((f) => `<li><strong>${escapeHtml(f.name)}</strong><br>${fmtInt(f.used)} respons · ${rangeLabel([f.min, f.max])}
           ${f.unclassified ? `<br><span class="warn">${fmtInt(f.unclassified)} baris tanpa kategori tNPS, tidak dihitung</span>` : ''}
           ${f.noDate ? `<br><span class="warn">${fmtInt(f.noDate)} baris tanggalnya tidak terbaca</span>` : ''}
+          ${f.perMonth ? `<br>Per bulan: ${Object.entries(f.perMonth).sort().map(([k, n]) => MONTHS[+k.slice(5) - 1] + ' ' + k.slice(0, 4) + ' ' + fmtInt(n)).join(', ')}` : ''}
+          ${f.badDates && f.badDates.length ? `<br><span class="warn">Contoh tanggal gagal dibaca: ${f.badDates.map(escapeHtml).join(' | ')}</span>` : ''}
+          ${f.total != null ? `<br>Total baris ${fmtInt(f.total)}${f.noId ? `, ${fmtInt(f.noId)} tanpa ${escapeHtml(DATASETS[k].schema.id)}` : ''}${f.dateOrder ? ` · format tanggal ${f.dateOrder}` : ''}` : ''}
           ${f.cats ? `<br>Kategori: ${Object.entries(f.cats).map(([c, n]) => escapeHtml(c) + ' ' + fmtInt(n)).join(', ')}` : ''}</li>`).join('')}</ul>
         <p style="margin:8px 0 0">Kolom: <code>${[ds.schema.id, ds.schema.date, ds.schema.unit, ds.schema.cat].filter((c, i, a) => c && a.indexOf(c) === i).join(', ')}</code> · <button class="link-btn" data-clear="${k}">Hapus data</button></p>
       </details>` : ''}
@@ -705,7 +724,7 @@ async function handleFiles(ds, files) {
     const store = state.data[ds];
     for (const date in combined) for (const u in combined[date]) (store.agg[date] ||= {})[u] = combined[date][u];
     for (const r of results) {
-      store.files.push({ name: r.name, used: r.used, min: r.min, max: r.max, unclassified: r.unclassified, noDate: r.noDate, dateOrder: r.dateOrder, cats: r.cats, at: Date.now() });
+      store.files.push({ name: r.name, used: r.used, min: r.min, max: r.max, unclassified: r.unclassified, noDate: r.noDate, dateOrder: r.dateOrder, cats: r.cats, perMonth: r.perMonth, badDates: r.badDates, total: r.total, noId: r.noId, at: Date.now() });
       for (const c in r.cats) store.cats[c] = (store.cats[c] || 0) + r.cats[c];
     }
     store.files = store.files.slice(-20);
