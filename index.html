@@ -52,19 +52,20 @@ main{max-width:1200px;margin:-64px auto 0;padding:0 28px 48px;position:relative;
 main>*{min-width:0}
 
 /* ---------- Sources ---------- */
-.sources{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.sources{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+@media (max-width:1120px){.sources{grid-template-columns:repeat(2,1fr)}}
 .src{background:var(--surface);border-radius:14px;padding:16px 18px;box-shadow:0 1px 0 var(--line),0 10px 30px -18px rgba(60,10,20,.35);
-  display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;position:relative;transition:box-shadow .15s}
+  display:grid;grid-template-columns:1fr;align-content:start;gap:4px 12px;align-items:center;position:relative;transition:box-shadow .15s}
 .src.over{box-shadow:0 0 0 2px var(--red)}
 .src h3{margin:0;font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--faint);flex:none}
 .src.has .dot{background:var(--up)}
-.src .meta{grid-column:1;font-size:13px;color:var(--muted);margin:0}
+.src .meta{font-size:13px;color:var(--muted);margin:0}
 .src .status{grid-column:1/-1;font-size:12.5px;margin:4px 0 0;color:var(--muted)}
 .src .status:empty{display:none}
 .status .ok{color:var(--up);font-weight:700}
 .status .err{color:var(--down);font-weight:700}
-.up-btn{grid-row:1/3;grid-column:2;border:0;background:var(--red-wash);color:var(--red);font-weight:700;font-size:13px;border-radius:9px;padding:9px 14px;cursor:pointer;white-space:nowrap}
+.up-btn{grid-column:1/-1;justify-self:start;margin-top:8px;border:0;background:var(--red-wash);color:var(--red);font-weight:700;font-size:13px;border-radius:9px;padding:9px 14px;cursor:pointer;white-space:nowrap}
 :root .up-btn:hover{background:var(--red);color:#fff}
 .src input[type=file]{display:none}
 .src .more{grid-column:1/-1;font-size:12.5px;color:var(--muted);margin-top:4px}
@@ -342,13 +343,23 @@ onmessage = (e) => {
 
 <script>
 /* ---------- Konfigurasi ---------- */
+const SKIP = '__skip';
 const DATASETS = {
   mobile: {
-    label: 'Mobile & GraPARI Express',
-    desc: 'Call Center, GraPARI, eCare, MyGraPARI',
+    label: 'Mobile',
+    desc: 'Call Center, GraPARI, eCare',
     schema: { id: 'msisdn', date: 'survey_date', unit: 'unit_type', cat: 'tnps_type', score: 'q1_ans' },
-    channels: ['Call Center', 'GraPARI', 'eCare', 'GraPARI Express'],
-    defaults: { callcenter: 'Call Center', gerai: 'GraPARI', grapari: 'GraPARI', grapari_lite: 'GraPARI', webservice: 'eCare', online_care: 'eCare', mygrapari: 'GraPARI Express', 'grapari express': 'GraPARI Express', grapari_express: 'GraPARI Express' }
+    channels: ['Call Center', 'GraPARI', 'eCare'],
+    // mygrapari tidak ikut Mobile Assisted; datanya diambil dari kartu GraPARI Express
+    defaults: { callcenter: 'Call Center', gerai: 'GraPARI', grapari: 'GraPARI', grapari_lite: 'GraPARI', webservice: 'eCare', online_care: 'eCare', mygrapari: SKIP, 'grapari express': SKIP, grapari_express: SKIP }
+  },
+  ge: {
+    label: 'GraPARI Express',
+    desc: 'MyGraPARI / GraPARI Express',
+    schema: { id: 'msisdn', date: 'survey_date', unit: 'unit_type', cat: 'tnps_type', score: 'q1_ans' },
+    channels: ['GraPARI Express'],
+    defaults: {},
+    defaultAll: 'GraPARI Express' // semua unit_type di file ini dihitung GraPARI Express
   },
   vero: {
     label: 'Veronica',
@@ -365,12 +376,11 @@ const DATASETS = {
     defaults: { 'call center': 'Call Center', grapari: 'GraPARI', socmed: 'eCare', ecare: 'eCare' }
   }
 };
-const SKIP = '__skip';
 const REPORT = [
   { key: 'mobile', title: 'tNPS Mobile', total: 'tNPS Mobile All Assisted',
     rows: [['Call Center', 'mobile', 'Call Center'], ['GraPARI', 'mobile', 'GraPARI'], ['eCare', 'mobile', 'eCare']] },
   { key: 'nonassisted', title: 'tNPS non Assisted', total: 'tNPS Mobile All NonAssisted',
-    rows: [['Veronica', 'vero', 'Veronica'], ['GraPARI Express', 'mobile', 'GraPARI Express']] },
+    rows: [['Veronica', 'vero', 'Veronica'], ['GraPARI Express', 'ge', 'GraPARI Express']] },
   { key: 'fixed', title: 'tNPS Fixed', total: 'tNPS Fixed All Assisted',
     rows: [['Call Center', 'indihome', 'Call Center'], ['GraPARI', 'indihome', 'GraPARI'], ['eCare', 'indihome', 'eCare']] }
 ];
@@ -380,15 +390,26 @@ const STORE_KEY = 'tnps-rekap-v1';
 /* ---------- State ---------- */
 function freshState() {
   return {
-    data: { mobile: { agg: {}, files: [], cats: {} }, vero: { agg: {}, files: [], cats: {} }, indihome: { agg: {}, files: [], cats: {} } },
-    mapping: { mobile: {}, vero: {}, indihome: {} },
+    data: Object.fromEntries(Object.keys(DATASETS).map((k) => [k, { agg: {}, files: [], cats: {} }])),
+    mapping: Object.fromEntries(Object.keys(DATASETS).map((k) => [k, {}])),
     targets: { mobile: 60, nonassisted: 58, fixed: 43 },
     period: { mode: 'auto', cur: ['', ''], prev: ['', ''] },
     showN: false, view: 'score'
   };
 }
 let state = freshState();
-try { const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); if (saved) state = Object.assign(freshState(), saved); } catch (e) {}
+try {
+  const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+  if (saved) {
+    const base = freshState();
+    state = Object.assign(base, saved);
+    state.data = Object.assign(freshState().data, saved.data || {});
+    state.mapping = Object.assign(freshState().mapping, saved.mapping || {});
+    // versi lama memetakan mygrapari di Mobile ke GraPARI Express; sekarang dipisah
+    for (const u of ['mygrapari', 'grapari express', 'grapari_express'])
+      if (state.mapping.mobile[u] === 'GraPARI Express') delete state.mapping.mobile[u];
+  }
+} catch (e) {}
 function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { toast('Penyimpanan browser penuh; data hanya bertahan sampai halaman ditutup.'); } }
 
 /* ---------- Helpers ---------- */
@@ -419,8 +440,8 @@ function periods() {
 }
 function channelOf(ds, unit) {
   const m = state.mapping[ds];
-  if (m && m[unit] != null) return m[unit] === SKIP ? null : m[unit];
-  return DATASETS[ds].defaults[unit] || null;
+  const v = m && m[unit] != null ? m[unit] : (DATASETS[ds].defaults[unit] ?? DATASETS[ds].defaultAll ?? null);
+  return !v || v === SKIP ? null : v;
 }
 function tally(sources, [a, b]) {
   const out = { p: 0, n: 0, d: 0 };
@@ -479,7 +500,7 @@ function renderScore(model) {
   $('#legend').innerHTML = hasData() ? `<span><i class="lg-old"></i>${lp}</span><span><i class="lg-now"></i>${lc}, capai target</span>
     <span><i class="lg-now miss"></i>${lc}, di bawah target</span><span><i class="tgt-mark"></i>Target</span>` : '';
   if (!hasData()) {
-    $('#cards').innerHTML = `<div class="empty"><strong>Belum ada data</strong>Unggah raw data Mobile, Veronica, atau IndiHome di atas untuk mengisi rekap.</div>`;
+    $('#cards').innerHTML = `<div class="empty"><strong>Belum ada data</strong>Unggah raw data Mobile, GraPARI Express, Veronica, atau IndiHome di atas untuk mengisi rekap.</div>`;
     return;
   }
   // skala jalur: dari batas bawah (≤0) sampai 100
@@ -589,7 +610,7 @@ function renderMapping() {
     if (!units.length) return `<div><strong>${ds.label}</strong><p class="hint">Belum ada data.</p></div>`;
     return `<div><strong>${ds.label}</strong> <span class="hint">(${ds.schema.unit})</span>
       <table class="m" style="margin-top:6px">${units.map((u) => {
-        const ch = channelOf(k, u), unknown = state.mapping[k][u] == null && !ds.defaults[u];
+        const ch = channelOf(k, u), unknown = state.mapping[k][u] == null && ds.defaults[u] === undefined && !ds.defaultAll;
         return `<tr><td>${escapeHtml(u)}${unknown && inCur[u] ? '<span class="badge">belum dipetakan</span>' : ''}</td>
           <td class="c">${fmtInt(counts[u])}</td>
           <td><select data-map="${k}" data-unit="${escapeHtml(u)}" aria-label="Channel untuk ${escapeHtml(u)}">
